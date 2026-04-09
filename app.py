@@ -25,7 +25,6 @@ def create_app():
 app = create_app()
 
 
-# usuarios
 @app.route("/usuarios", methods=["GET"])
 def listar_usuarios():
     usuarios = Usuario.query.all()
@@ -79,10 +78,23 @@ def excluir_usuario(id_usuario):
     if not usuario:
         return jsonify({"status": 404, "message": "Usuário não encontrado"}), 404
 
-    db.session.delete(usuario)
-    db.session.commit()
+    try:
+        itens = InventarioItem.query.filter_by(idUsuario=id_usuario).all()
+        for item in itens:
+            db.session.delete(item)
 
-    return jsonify({"status": 200, "message": "Usuário deletado com sucesso"}), 200
+        slots = Hotbar.query.filter_by(idUsuario=id_usuario).all()
+        for slot in slots:
+            db.session.delete(slot)
+
+        db.session.delete(usuario)
+        db.session.commit()
+
+        return jsonify({"status": 200, "message": "Usuário deletado com sucesso"}), 200
+
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"status": 400, "message": str(e)}), 400
 
 
 @app.route("/usuarios/<int:id_usuario>/inventario", methods=["GET"])
@@ -105,7 +117,6 @@ def hotbar_usuario(id_usuario):
     return jsonify([h.para_dic() for h in slots]), 200
 
 
-# raridades
 @app.route("/raridades", methods=["GET"])
 def listar_raridades():
     return jsonify([r.para_dic() for r in Raridade.query.all()]), 200
@@ -165,7 +176,6 @@ def itens_por_raridade(id_raridade):
     return jsonify([i.para_dic() for i in itens]), 200
 
 
-# itens
 @app.route("/itens", methods=["GET"])
 def listar_itens():
     return jsonify([i.para_dic() for i in Item.query.all()]), 200
@@ -232,11 +242,10 @@ def buscar_itens():
     nome = request.args.get("nome", "")
     itens = Item.query.filter(Item.nome.ilike(f"%{nome}%")).all()
     if not itens:
-         return jsonify({"status": 404, "message": "Nenhum item encontrado"}), 404
+        return jsonify({"status": 404, "message": "Nenhum item encontrado"}), 404
     return jsonify([i.para_dic() for i in itens]), 200
 
 
-# inventario
 @app.route("/inventario", methods=["GET"])
 def listar_inventario():
     return jsonify([i.para_dic() for i in InventarioItem.query.all()]), 200
@@ -283,7 +292,6 @@ def deletar_inventario(id):
     return jsonify({"status": 200, "message": "Item removido do inventário"}), 200
 
 
-# hotbar
 @app.route("/hotbar", methods=["GET"])
 def listar_hotbar():
     return jsonify([h.para_dic() for h in Hotbar.query.all()]), 200
