@@ -33,7 +33,7 @@ def listar_usuarios():
 
 @app.route("/usuarios/<int:id_usuario>", methods=["GET"])
 def obter_usuario(id_usuario):
-    usuario = Usuario.query.get(id_usuario)
+    usuario = db.session.get(Usuario, id_usuario)
     if not usuario:
         return jsonify({"status": 404, "message": "Usuário não encontrado"}), 404
     return jsonify(usuario.para_dic()), 200
@@ -41,7 +41,7 @@ def obter_usuario(id_usuario):
 
 @app.route("/usuarios", methods=["POST"])
 def criar_usuario():
-    data = request.get_json()
+    data = request.get_json() or {}
 
     usuario = Usuario(
         nome=data.get("nome"),
@@ -49,49 +49,64 @@ def criar_usuario():
         senha=data.get("senha")
     )
 
-    db.session.add(usuario)
-    db.session.commit()
-
-    return jsonify({"status": 201, "message": "Usuário criado com sucesso", "data": usuario.para_dic()}), 201
+    try:
+        db.session.add(usuario)
+        db.session.commit()
+        return jsonify({"status": 201, "message": "Usuário criado com sucesso", "data": usuario.para_dic()}), 201
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"status": 400, "message": str(e)}), 400
 
 
 @app.route("/usuarios/<int:id_usuario>", methods=["PUT"])
 def atualizar_usuario(id_usuario):
-    usuario = Usuario.query.get(id_usuario)
+    usuario = db.session.get(Usuario, id_usuario)
     if not usuario:
         return jsonify({"status": 404, "message": "Usuário não encontrado"}), 404
 
-    data = request.get_json()
+    data = request.get_json() or {}
 
-    usuario.nome = data.get("nome", usuario.nome)
-    usuario.email = data.get("email", usuario.email)
-    usuario.senha = data.get("senha", usuario.senha)
+    try:
+        usuario.nome = data.get("nome", usuario.nome)
+        usuario.email = data.get("email", usuario.email)
+        usuario.senha = data.get("senha", usuario.senha)
 
-    db.session.commit()
-
-    return jsonify({"status": 200, "message": "Usuário atualizado com sucesso", "data": usuario.para_dic()}), 200
+        db.session.commit()
+        return jsonify({"status": 200, "message": "Usuário atualizado com sucesso", "data": usuario.para_dic()}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"status": 400, "message": str(e)}), 400
 
 
 @app.route("/usuarios/<int:id_usuario>", methods=["DELETE"])
 def excluir_usuario(id_usuario):
-    usuario = Usuario.query.get(id_usuario)
+    usuario = db.session.get(Usuario, id_usuario)
     if not usuario:
         return jsonify({"status": 404, "message": "Usuário não encontrado"}), 404
 
     try:
-        itens = InventarioItem.query.filter_by(idUsuario=id_usuario).all()
-        for item in itens:
-            db.session.delete(item)
+        inventario_itens = InventarioItem.query.filter_by(idUsuario=id_usuario).all()
+        inventario_ids = [item.idInventarioItem for item in inventario_itens]
 
-        slots = Hotbar.query.filter_by(idUsuario=id_usuario).all()
-        for slot in slots:
-            db.session.delete(slot)
+        if inventario_ids:
+            hotbars_por_inventario = Hotbar.query.filter(Hotbar.idInventarioItem.in_(inventario_ids)).all()
+            for hotbar in hotbars_por_inventario:
+                db.session.delete(hotbar)
+
+        hotbars_por_usuario = Hotbar.query.filter_by(idUsuario=id_usuario).all()
+        hotbar_ids_removidos = set()
+        for hotbar in hotbars_por_usuario:
+            if hotbar.idHotbar not in hotbar_ids_removidos:
+                db.session.delete(hotbar)
+                hotbar_ids_removidos.add(hotbar.idHotbar)
+
+        for item in inventario_itens:
+            db.session.delete(item)
 
         db.session.delete(usuario)
         db.session.commit()
 
         return jsonify({"status": 200, "message": "Usuário deletado com sucesso"}), 200
-
     except Exception as e:
         db.session.rollback()
         return jsonify({"status": 400, "message": str(e)}), 400
@@ -99,7 +114,7 @@ def excluir_usuario(id_usuario):
 
 @app.route("/usuarios/<int:id_usuario>/inventario", methods=["GET"])
 def inventario_usuario(id_usuario):
-    usuario = Usuario.query.get(id_usuario)
+    usuario = db.session.get(Usuario, id_usuario)
     if not usuario:
         return jsonify({"status": 404, "message": "Usuário não encontrado"}), 404
 
@@ -109,7 +124,7 @@ def inventario_usuario(id_usuario):
 
 @app.route("/usuarios/<int:id_usuario>/hotbar", methods=["GET"])
 def hotbar_usuario(id_usuario):
-    usuario = Usuario.query.get(id_usuario)
+    usuario = db.session.get(Usuario, id_usuario)
     if not usuario:
         return jsonify({"status": 404, "message": "Usuário não encontrado"}), 404
 
@@ -124,7 +139,7 @@ def listar_raridades():
 
 @app.route("/raridades/<int:id_raridade>", methods=["GET"])
 def obter_raridade(id_raridade):
-    r = Raridade.query.get(id_raridade)
+    r = db.session.get(Raridade, id_raridade)
     if not r:
         return jsonify({"status": 404, "message": "Raridade não encontrada"}), 404
     return jsonify(r.para_dic()), 200
@@ -132,43 +147,73 @@ def obter_raridade(id_raridade):
 
 @app.route("/raridades", methods=["POST"])
 def criar_raridade():
-    data = request.get_json()
+    data = request.get_json() or {}
 
     r = Raridade(nome=data.get("nome"))
-    db.session.add(r)
-    db.session.commit()
 
-    return jsonify({"status": 201, "message": "Raridade criada com sucesso", "data": r.para_dic()}), 201
+    try:
+        db.session.add(r)
+        db.session.commit()
+        return jsonify({"status": 201, "message": "Raridade criada com sucesso", "data": r.para_dic()}), 201
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"status": 400, "message": str(e)}), 400
 
 
 @app.route("/raridades/<int:id_raridade>", methods=["PUT"])
 def atualizar_raridade(id_raridade):
-    r = Raridade.query.get(id_raridade)
+    r = db.session.get(Raridade, id_raridade)
     if not r:
         return jsonify({"status": 404, "message": "Raridade não encontrada"}), 404
 
-    data = request.get_json()
-    r.nome = data.get("nome", r.nome)
+    data = request.get_json() or {}
 
-    db.session.commit()
-    return jsonify({"status": 200, "message": "Raridade atualizada com sucesso", "data": r.para_dic()}), 200
+    try:
+        r.nome = data.get("nome", r.nome)
+        db.session.commit()
+        return jsonify({"status": 200, "message": "Raridade atualizada com sucesso", "data": r.para_dic()}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"status": 400, "message": str(e)}), 400
 
 
 @app.route("/raridades/<int:id_raridade>", methods=["DELETE"])
 def excluir_raridade(id_raridade):
-    r = Raridade.query.get(id_raridade)
+    r = db.session.get(Raridade, id_raridade)
     if not r:
         return jsonify({"status": 404, "message": "Raridade não encontrada"}), 404
 
-    db.session.delete(r)
-    db.session.commit()
+    try:
+        itens = Item.query.filter_by(idRaridade=id_raridade).all()
+        item_ids = [item.idItem for item in itens]
 
-    return jsonify({"status": 200, "message": "Raridade deletada com sucesso"}), 200
+        if item_ids:
+            inventario_itens = InventarioItem.query.filter(InventarioItem.idItem.in_(item_ids)).all()
+            inventario_ids = [inv.idInventarioItem for inv in inventario_itens]
+
+            if inventario_ids:
+                hotbars = Hotbar.query.filter(Hotbar.idInventarioItem.in_(inventario_ids)).all()
+                for hotbar in hotbars:
+                    db.session.delete(hotbar)
+
+            for inv in inventario_itens:
+                db.session.delete(inv)
+
+        for item in itens:
+            db.session.delete(item)
+
+        db.session.delete(r)
+        db.session.commit()
+
+        return jsonify({"status": 200, "message": "Raridade deletada com sucesso"}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"status": 400, "message": str(e)}), 400
 
 
 @app.route("/raridades/<int:id_raridade>/itens", methods=["GET"])
 def itens_por_raridade(id_raridade):
-    r = Raridade.query.get(id_raridade)
+    r = db.session.get(Raridade, id_raridade)
     if not r:
         return jsonify({"status": 404, "message": "Raridade não encontrada"}), 404
 
@@ -183,7 +228,7 @@ def listar_itens():
 
 @app.route("/itens/<int:id_item>", methods=["GET"])
 def obter_item(id_item):
-    item = Item.query.get(id_item)
+    item = db.session.get(Item, id_item)
     if not item:
         return jsonify({"status": 404, "message": "Item não encontrado"}), 404
     return jsonify(item.para_dic()), 200
@@ -191,7 +236,7 @@ def obter_item(id_item):
 
 @app.route("/itens", methods=["POST"])
 def criar_item():
-    data = request.get_json()
+    data = request.get_json() or {}
 
     item = Item(
         idRaridade=data.get("idRaridade"),
@@ -201,40 +246,62 @@ def criar_item():
         qtd=data.get("qtd")
     )
 
-    db.session.add(item)
-    db.session.commit()
-
-    return jsonify({"status": 201, "message": "Item criado com sucesso", "data": item.para_dic()}), 201
+    try:
+        db.session.add(item)
+        db.session.commit()
+        return jsonify({"status": 201, "message": "Item criado com sucesso", "data": item.para_dic()}), 201
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"status": 400, "message": str(e)}), 400
 
 
 @app.route("/itens/<int:id_item>", methods=["PUT"])
 def atualizar_item(id_item):
-    item = Item.query.get(id_item)
+    item = db.session.get(Item, id_item)
     if not item:
         return jsonify({"status": 404, "message": "Item não encontrado"}), 404
 
-    data = request.get_json()
+    data = request.get_json() or {}
 
-    item.idRaridade = data.get("idRaridade", item.idRaridade)
-    item.nome = data.get("nome", item.nome)
-    item.descr = data.get("descr", item.descr)
-    item.imagem_url = data.get("imagem_url", item.imagem_url)
-    item.qtd = data.get("qtd", item.qtd)
+    try:
+        item.idRaridade = data.get("idRaridade", item.idRaridade)
+        item.nome = data.get("nome", item.nome)
+        item.descr = data.get("descr", item.descr)
+        item.imagem_url = data.get("imagem_url", item.imagem_url)
+        item.qtd = data.get("qtd", item.qtd)
 
-    db.session.commit()
-    return jsonify({"status": 200, "message": "Item atualizado com sucesso", "data": item.para_dic()}), 200
+        db.session.commit()
+        return jsonify({"status": 200, "message": "Item atualizado com sucesso", "data": item.para_dic()}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"status": 400, "message": str(e)}), 400
 
 
 @app.route("/itens/<int:id_item>", methods=["DELETE"])
 def excluir_item(id_item):
-    item = Item.query.get(id_item)
+    item = db.session.get(Item, id_item)
     if not item:
         return jsonify({"status": 404, "message": "Item não encontrado"}), 404
 
-    db.session.delete(item)
-    db.session.commit()
+    try:
+        inventario_itens = InventarioItem.query.filter_by(idItem=id_item).all()
+        inventario_ids = [inv.idInventarioItem for inv in inventario_itens]
 
-    return jsonify({"status": 200, "message": "Item deletado com sucesso"}), 200
+        if inventario_ids:
+            hotbars = Hotbar.query.filter(Hotbar.idInventarioItem.in_(inventario_ids)).all()
+            for hotbar in hotbars:
+                db.session.delete(hotbar)
+
+        for inv in inventario_itens:
+            db.session.delete(inv)
+
+        db.session.delete(item)
+        db.session.commit()
+
+        return jsonify({"status": 200, "message": "Item deletado com sucesso"}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"status": 400, "message": str(e)}), 400
 
 
 @app.route("/itens/busca", methods=["GET"])
@@ -253,7 +320,7 @@ def listar_inventario():
 
 @app.route("/inventario", methods=["POST"])
 def add_inventario():
-    data = request.get_json()
+    data = request.get_json() or {}
 
     inv = InventarioItem(
         idItem=data.get("idItem"),
@@ -261,35 +328,50 @@ def add_inventario():
         qtd=data.get("qtd", 1)
     )
 
-    db.session.add(inv)
-    db.session.commit()
-
-    return jsonify({"status": 201, "message": "Item adicionado ao inventário", "data": inv.para_dic()}), 201
+    try:
+        db.session.add(inv)
+        db.session.commit()
+        return jsonify({"status": 201, "message": "Item adicionado ao inventário", "data": inv.para_dic()}), 201
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"status": 400, "message": str(e)}), 400
 
 
 @app.route("/inventario/<int:id>", methods=["PUT"])
 def atualizar_inventario(id):
-    inv = InventarioItem.query.get(id)
+    inv = db.session.get(InventarioItem, id)
     if not inv:
         return jsonify({"status": 404, "message": "Item do inventário não encontrado"}), 404
 
-    data = request.get_json()
-    inv.qtd = data.get("qtd", inv.qtd)
+    data = request.get_json() or {}
 
-    db.session.commit()
-    return jsonify({"status": 200, "message": "Inventário atualizado com sucesso", "data": inv.para_dic()}), 200
+    try:
+        inv.qtd = data.get("qtd", inv.qtd)
+        db.session.commit()
+        return jsonify({"status": 200, "message": "Inventário atualizado com sucesso", "data": inv.para_dic()}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"status": 400, "message": str(e)}), 400
 
 
 @app.route("/inventario/<int:id>", methods=["DELETE"])
 def deletar_inventario(id):
-    inv = InventarioItem.query.get(id)
+    inv = db.session.get(InventarioItem, id)
     if not inv:
         return jsonify({"status": 404, "message": "Item do inventário não encontrado"}), 404
 
-    db.session.delete(inv)
-    db.session.commit()
+    try:
+        hotbars = Hotbar.query.filter_by(idInventarioItem=id).all()
+        for hotbar in hotbars:
+            db.session.delete(hotbar)
 
-    return jsonify({"status": 200, "message": "Item removido do inventário"}), 200
+        db.session.delete(inv)
+        db.session.commit()
+
+        return jsonify({"status": 200, "message": "Item removido do inventário"}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"status": 400, "message": str(e)}), 400
 
 
 @app.route("/hotbar", methods=["GET"])
@@ -299,42 +381,52 @@ def listar_hotbar():
 
 @app.route("/hotbar", methods=["POST"])
 def add_hotbar():
-    data = request.get_json()
+    data = request.get_json() or {}
 
     h = Hotbar(
         idUsuario=data.get("idUsuario"),
         idInventarioItem=data.get("idInventarioItem")
     )
 
-    db.session.add(h)
-    db.session.commit()
-
-    return jsonify({"status": 201, "message": "Adicionado à hotbar com sucesso", "data": h.para_dic()}), 201
+    try:
+        db.session.add(h)
+        db.session.commit()
+        return jsonify({"status": 201, "message": "Adicionado à hotbar com sucesso", "data": h.para_dic()}), 201
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"status": 400, "message": str(e)}), 400
 
 
 @app.route("/hotbar/<int:id>", methods=["PUT"])
 def atualizar_hotbar(id):
-    h = Hotbar.query.get(id)
+    h = db.session.get(Hotbar, id)
     if not h:
         return jsonify({"status": 404, "message": "Slot da hotbar não encontrado"}), 404
 
-    data = request.get_json()
-    h.idInventarioItem = data.get("idInventarioItem", h.idInventarioItem)
+    data = request.get_json() or {}
 
-    db.session.commit()
-    return jsonify({"status": 200, "message": "Hotbar atualizada com sucesso", "data": h.para_dic()}), 200
+    try:
+        h.idInventarioItem = data.get("idInventarioItem", h.idInventarioItem)
+        db.session.commit()
+        return jsonify({"status": 200, "message": "Hotbar atualizada com sucesso", "data": h.para_dic()}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"status": 400, "message": str(e)}), 400
 
 
 @app.route("/hotbar/<int:id>", methods=["DELETE"])
 def deletar_hotbar(id):
-    h = Hotbar.query.get(id)
+    h = db.session.get(Hotbar, id)
     if not h:
         return jsonify({"status": 404, "message": "Slot da hotbar não encontrado"}), 404
 
-    db.session.delete(h)
-    db.session.commit()
-
-    return jsonify({"status": 200, "message": "Removido da hotbar com sucesso"}), 200
+    try:
+        db.session.delete(h)
+        db.session.commit()
+        return jsonify({"status": 200, "message": "Removido da hotbar com sucesso"}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"status": 400, "message": str(e)}), 400
 
 
 if __name__ == "__main__":
